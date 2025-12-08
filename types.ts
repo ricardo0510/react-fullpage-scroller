@@ -1,6 +1,6 @@
-import { ReactNode, CSSProperties } from 'react';
+import { ReactNode, CSSProperties } from "react";
 
-export type FullPageDirection = 'vertical' | 'horizontal';
+export type FullPageDirection = "vertical" | "horizontal";
 
 export interface FullPageProps {
   children: ReactNode;

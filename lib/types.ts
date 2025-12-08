@@ -1,6 +1,6 @@
-import { ReactNode, CSSProperties } from 'react';
+import { ReactNode, CSSProperties } from "react";
 
-export type FullPageDirection = 'vertical' | 'horizontal';
+export type FullPageDirection = "vertical" | "horizontal";
 
 export interface FullPageProps {
   children: ReactNode;
@@ -24,4 +24,13 @@ export interface FullPageContextType {
   goTo: (page: number) => void;
   isScrolling: boolean;
   direction: FullPageDirection;
+}
+
+// Interface for the exposed ref API
+export interface FullPageRef {
+  next: () => void;
+  prev: () => void;
+  goTo: (page: number) => void;
+  getCurrentPage: () => number;
+  getCount: () => number;
 }
