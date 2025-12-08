@@ -6,6 +6,7 @@ import React, {
   ReactElement,
   forwardRef,
   useImperativeHandle,
+  useMemo,
 } from "react";
 import { FullPageProps, FullPageRef } from "./types";
 import { FullPageContext } from "./FullPageContext";
@@ -13,16 +14,10 @@ import { FullPageContext } from "./FullPageContext";
 /**
  * FullPage Component
  *
- * Implements a fullscreen scrolling effect similar to fullpage.js.
- * Handles:
- * - Mouse Wheel scrolling
- * - Touch swipes (Mobile)
- * - Mouse Dragging (Desktop) - "Long Slider" style
- * - Keyboard navigation
- * - Transition animations
- * - Directional support (Vertical & Horizontal)
- * - External Ref control
- * - Fixed/Overlay element handling
+ * Optimized for performance:
+ * - Uses requestAnimationFrame for drag updates (60fps).
+ * - Memoizes children and context to prevent unnecessary re-renders.
+ * - Forces GPU acceleration via CSS.
  */
 export const FullPage = forwardRef<FullPageRef, FullPageProps>(
   (
@@ -40,23 +35,27 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const innerRef = useRef<HTMLDivElement>(null);
 
-    // Separate children into Sections (slides) and Overlays (Headers, Controls, etc.)
-    // This prevents fixed elements from moving with the transform
-    const childrenArray = React.Children.toArray(children) as ReactElement[];
-    const slides: ReactElement[] = [];
-    const overlays: ReactElement[] = [];
+    // Performance: Memoize children splitting logic to avoid re-calculation on every render
+    const { slides, overlays } = useMemo(() => {
+      const childrenArray = React.Children.toArray(children) as ReactElement[];
+      const s: ReactElement[] = [];
+      const o: ReactElement[] = [];
 
-    childrenArray.forEach((child) => {
-      // Check for the static property we added to Section
-      if ((child.type as any).isFullPageSection) {
-        slides.push(child);
-      } else {
-        overlays.push(child);
-      }
-    });
+      childrenArray.forEach((child) => {
+        // Check for the static property we added to Section
+        if (
+          React.isValidElement(child) &&
+          (child.type as any).isFullPageSection
+        ) {
+          s.push(child);
+        } else {
+          o.push(child);
+        }
+      });
+      return { slides: s, overlays: o };
+    }, [children]);
 
     const count = slides.length;
-
     const isVertical = direction === "vertical";
 
     // --- Drag State ---
@@ -65,11 +64,15 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
     const startTime = useRef(0);
     const currentDelta = useRef(0); // Generic delta
 
+    // Performance: rAF Reference to throttle visual updates
+    const rafRef = useRef<number | null>(null);
+    const latestDragPos = useRef<{ x: number; y: number } | null>(null);
+
     // Helper to handle page transitions
     const scrollToPage = useCallback(
       (targetPage: number) => {
         if (targetPage < 0 || targetPage >= count) return;
-        if (isScrolling) return; // Debounce mechanism
+        if (isScrolling) return;
 
         if (onLeave) {
           onLeave(currentPage, targetPage);
@@ -113,9 +116,9 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
     // 1. Wheel Event (Mouse Scroll)
     useEffect(() => {
       const handleWheel = (e: WheelEvent) => {
-        if (isDragging.current) return; // Ignore wheel during drag
+        if (isDragging.current) return;
 
-        e.preventDefault(); // Prevent native scroll
+        e.preventDefault();
         if (isScrolling) return;
 
         const delta = isVertical
@@ -133,6 +136,7 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
 
       const container = containerRef.current;
       if (container) {
+        // Passive: false is required to preventDefault
         container.addEventListener("wheel", handleWheel, { passive: false });
       }
 
@@ -169,32 +173,37 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [next, prev, isVertical]);
 
-    // 3. Drag Logic (Touch & Mouse) - "Long Slider" Implementation
+    // 3. Drag Logic (Touch & Mouse) - Optimized with rAF
 
     const handleDragStart = (x: number, y: number, target: EventTarget) => {
       if (isScrolling) return;
-      // Don't start drag if interacting with buttons, links, or inputs
       if ((target as HTMLElement).closest("button, a, input, textarea")) return;
 
       isDragging.current = true;
       startPos.current = isVertical ? y : x;
       startTime.current = Date.now();
       currentDelta.current = 0;
+      latestDragPos.current = { x, y };
 
-      // Disable transition for direct 1:1 movement follower
       if (innerRef.current) {
         innerRef.current.style.transitionDuration = "0ms";
+        innerRef.current.style.willChange = "transform"; // Hint browser for incoming changes
       }
     };
 
-    const handleDragMove = (x: number, y: number) => {
-      if (!isDragging.current) return;
+    // Performance: Core update logic extracted to run inside rAF
+    const updateDragVisuals = () => {
+      if (!isDragging.current || !latestDragPos.current || !innerRef.current) {
+        rafRef.current = null;
+        return;
+      }
 
+      const { x, y } = latestDragPos.current;
       const currentPos = isVertical ? y : x;
       const delta = currentPos - startPos.current;
       let effectiveDelta = delta;
 
-      // Resistance/Rubber-banding at edges (first/last page)
+      // Resistance at edges
       if (
         (currentPage === 0 && delta > 0) ||
         (currentPage === count - 1 && delta < 0)
@@ -204,14 +213,25 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
 
       currentDelta.current = effectiveDelta;
 
-      if (innerRef.current) {
-        // Apply transform manually to follow mouse
-        const offsetPct = currentPage * 100;
-        const transform = isVertical
-          ? `translate3d(0, calc(-${offsetPct}% + ${effectiveDelta}px), 0)`
-          : `translate3d(calc(-${offsetPct}% + ${effectiveDelta}px), 0, 0)`;
+      const offsetPct = currentPage * 100;
+      // Use translate3d to ensure GPU layer promotion
+      const transform = isVertical
+        ? `translate3d(0, calc(-${offsetPct}% + ${effectiveDelta}px), 0)`
+        : `translate3d(calc(-${offsetPct}% + ${effectiveDelta}px), 0, 0)`;
 
-        innerRef.current.style.transform = transform;
+      innerRef.current.style.transform = transform;
+
+      rafRef.current = null;
+    };
+
+    const handleDragMove = (x: number, y: number) => {
+      if (!isDragging.current) return;
+
+      latestDragPos.current = { x, y };
+
+      // Throttle: Only schedule a frame if one isn't already pending
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(updateDragVisuals);
       }
     };
 
@@ -219,20 +239,25 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
       if (!isDragging.current) return;
       isDragging.current = false;
 
+      // Cancel any pending rAF
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
       const delta = currentDelta.current;
       const timeElapsed = Date.now() - startTime.current;
 
-      // Velocity calculation: pixels per millisecond
       const velocity = Math.abs(delta) / (timeElapsed || 1);
 
       const viewportSize = isVertical ? window.innerHeight : window.innerWidth;
-      const threshold = viewportSize * 0.15; // 15% distance threshold to switch page
-      const velocityThreshold = 0.35; // Velocity threshold for flick (px/ms)
-      const minFlickDistance = 30; // Minimum distance for a flick to be valid
+      const threshold = viewportSize * 0.15;
+      const velocityThreshold = 0.35;
+      const minFlickDistance = 30;
 
-      // Restore transition for the snap animation
       if (innerRef.current) {
         innerRef.current.style.transitionDuration = `${duration}ms`;
+        innerRef.current.style.willChange = "auto"; // Remove hint to save memory
       }
 
       const isValidFlick =
@@ -241,17 +266,13 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
 
       if (isPastThreshold || isValidFlick) {
         if (delta < 0 && currentPage < count - 1) {
-          // Dragged Negative (Up/Left) -> Next Page
           scrollToPage(currentPage + 1);
         } else if (delta > 0 && currentPage > 0) {
-          // Dragged Positive (Down/Right) -> Prev Page
           scrollToPage(currentPage - 1);
         } else {
-          // Revert to current page (Boundary Bounce)
           resetPosition();
         }
       } else {
-        // Revert to current page (Bounce back)
         resetPosition();
       }
     };
@@ -265,7 +286,6 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
       }
     };
 
-    // Ensure position is correct when direction changes or resize happens
     useEffect(() => {
       resetPosition();
     }, [direction, currentPage]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -296,15 +316,19 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
       handleDragEnd();
     };
 
-    const contextValue = {
-      currentPage,
-      count,
-      next,
-      prev,
-      goTo,
-      isScrolling,
-      direction,
-    };
+    // Performance: Memoize context to avoid re-rendering consumers (Dots, custom hooks)
+    const contextValue = useMemo(
+      () => ({
+        currentPage,
+        count,
+        next,
+        prev,
+        goTo,
+        isScrolling,
+        direction,
+      }),
+      [currentPage, count, next, prev, goTo, isScrolling, direction]
+    );
 
     return (
       <FullPageContext.Provider value={contextValue}>
@@ -315,14 +339,14 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
+          // Force GPU layer for the container too
+          style={{ perspective: "1000px" }}
         >
-          {/* Render Overlays (Header, Dots, etc.) OUTSIDE the transformed container */}
           {overlays}
 
-          {/* Render Slides INSIDE the transformed container */}
           <div
             ref={innerRef}
-            className={`h-full w-full will-change-transform flex ${
+            className={`h-full w-full flex ${
               isVertical ? "flex-col" : "flex-row"
             }`}
             style={{
@@ -333,6 +357,9 @@ export const FullPage = forwardRef<FullPageRef, FullPageProps>(
                 ? `translate3d(0, -${currentPage * 100}%, 0)`
                 : `translate3d(-${currentPage * 100}%, 0, 0)`,
               transitionDuration: `${duration}ms`,
+              // Hardware acceleration hints
+              backfaceVisibility: "hidden",
+              perspective: "1000px",
             }}
           >
             {slides}
