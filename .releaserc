@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",  // 分析提交记录，决定版本号
+    "@semantic-release/release-notes-generator", // 生成更新日志
+    "@semantic-release/changelog", // 更新 CHANGELOG.md 文件
+    "@semantic-release/npm", // 更新 package.json 版本并发布到 npm
+    [
+      "@semantic-release/git", // 将修改后的 package.json 和 CHANGELOG.md 推送回 git
+      {
+        "assets": ["package.json", "CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    "@semantic-release/github" // 在 GitHub 上创建一个 Release 发行版
+  ]
+}

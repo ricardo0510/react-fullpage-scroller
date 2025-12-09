@@ -2,7 +2,7 @@ name: Release
 on:
   push:
     branches:
-      - master # 只有合并到 master 时触发
+      - main # 只有合并到 main 时触发
 
 permissions:
   contents: write # 赋予写权限，以便把版本号推回仓库

@@ -7,7 +7,7 @@ import {
   useFullPage,
   FullPageDirection,
   FullPageRef,
-} from "./lib";
+} from "./dist";
 
 // Example of a custom component using the API hook (Internal Consumption)
 const NextButton = () => {
