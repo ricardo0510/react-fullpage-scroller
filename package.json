@@ -1,5 +1,9 @@
 {
   "name": "full-scroller",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ricardo0510/react-fullpage-scroller.git"
+  },
   "description": "a full page scroll tool in react",
   "keywords": [
     "react",
