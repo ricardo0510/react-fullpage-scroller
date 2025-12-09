@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/ricardo0510/react-fullpage-scroller/compare/v1.1.0...v1.1.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* add repository url for provenance verification ([066884f](https://github.com/ricardo0510/react-fullpage-scroller/commit/066884fd31f6d5e60adfa4d4f4dd194593196ab3))
+
 # [1.1.0](https://github.com/ricardo0510/react-fullpage-scroller/compare/v1.0.3...v1.1.0) (2025-12-09)
 
 
