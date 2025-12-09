@@ -8,6 +8,8 @@ permissions:
   contents: write # 赋予写权限，以便把版本号推回仓库
   issues: write
   pull-requests: write
+  id-token: write # 允许获取 GITHUB_TOKEN 用于 semantic-release 的身份验证
+  packages: write # 允许发布到 npm
 
 jobs:
   release:
